@@ -1735,19 +1735,19 @@ namespace SQLite
 		/// <returns>
 		/// The number of rows added to the table.
 		/// </returns>
-		public int InsertAll (System.Collections.IEnumerable objects, bool runInTransaction = true)
+		public int InsertAll (System.Collections.IEnumerable objects, bool runInTransaction = true, List<KeyValuePair<string, object>> extraColumns = null)
 		{
 			var c = 0;
 			if (runInTransaction) {
 				RunInTransaction (() => {
 					foreach (var r in objects) {
-						c += Insert (r);
+						c += Insert (r, extraColumns);
 					}
 				});
 			}
 			else {
 				foreach (var r in objects) {
-					c += Insert (r);
+					c += Insert (r, extraColumns);
 				}
 			}
 			return c;
@@ -1768,19 +1768,19 @@ namespace SQLite
 		/// <returns>
 		/// The number of rows added to the table.
 		/// </returns>
-		public int InsertAll (System.Collections.IEnumerable objects, string extra, bool runInTransaction = true)
+		public int InsertAll (System.Collections.IEnumerable objects, string extra, bool runInTransaction = true, List<KeyValuePair<string, object>> extraColumns = null)
 		{
 			var c = 0;
 			if (runInTransaction) {
 				RunInTransaction (() => {
 					foreach (var r in objects) {
-						c += Insert (r, extra);
+						c += Insert (r, extra, extraColumns);
 					}
 				});
 			}
 			else {
 				foreach (var r in objects) {
-					c += Insert (r);
+					c += Insert (r, extraColumns);
 				}
 			}
 			return c;
@@ -1801,19 +1801,19 @@ namespace SQLite
 		/// <returns>
 		/// The number of rows added to the table.
 		/// </returns>
-		public int InsertAll (System.Collections.IEnumerable objects, Type objType, bool runInTransaction = true)
+		public int InsertAll (System.Collections.IEnumerable objects, Type objType, bool runInTransaction = true, List<KeyValuePair<string, object>> extraColumns = null)
 		{
 			var c = 0;
 			if (runInTransaction) {
 				RunInTransaction (() => {
 					foreach (var r in objects) {
-						c += Insert (r, objType);
+						c += Insert (r, objType, extraColumns);
 					}
 				});
 			}
 			else {
 				foreach (var r in objects) {
-					c += Insert (r, objType);
+					c += Insert (r, objType, extraColumns);
 				}
 			}
 			return c;
@@ -1827,15 +1827,18 @@ namespace SQLite
 		/// <param name="obj">
 		/// The object to insert.
 		/// </param>
+		/// <param name="extraColumns">
+		/// List of extra columns to be written into DB with query
+		/// </param>
 		/// <returns>
 		/// The number of rows added to the table.
 		/// </returns>
-		public int Insert (object obj)
+		public int Insert (object obj, List<KeyValuePair<string, object>> extraColumns = null)
 		{
 			if (obj == null) {
 				return 0;
 			}
-			return Insert (obj, "", Orm.GetType (obj));
+			return Insert (obj, "", Orm.GetType (obj), extraColumns);
 		}
 
 		/// <summary>
@@ -1852,12 +1855,12 @@ namespace SQLite
 		/// <returns>
 		/// The number of rows modified.
 		/// </returns>
-		public int InsertOrReplace (object obj)
+		public int InsertOrReplace (object obj, List<KeyValuePair<string, object>> extraColumns = null)
 		{
 			if (obj == null) {
 				return 0;
 			}
-			return Insert (obj, "OR REPLACE", Orm.GetType (obj));
+			return Insert (obj, "OR REPLACE", Orm.GetType (obj), extraColumns);
 		}
 
 		/// <summary>
@@ -1874,9 +1877,9 @@ namespace SQLite
 		/// <returns>
 		/// The number of rows added to the table.
 		/// </returns>
-		public int Insert (object obj, Type objType)
+		public int Insert (object obj, Type objType, List<KeyValuePair<string, object>> extraColumns = null)
 		{
-			return Insert (obj, "", objType);
+			return Insert (obj, "", objType, extraColumns);
 		}
 
 		/// <summary>
@@ -1896,9 +1899,9 @@ namespace SQLite
 		/// <returns>
 		/// The number of rows modified.
 		/// </returns>
-		public int InsertOrReplace (object obj, Type objType)
+		public int InsertOrReplace (object obj, Type objType, List<KeyValuePair<string, object>> extraColumns = null)
 		{
-			return Insert (obj, "OR REPLACE", objType);
+			return Insert (obj, "OR REPLACE", objType, extraColumns);
 		}
 
 		/// <summary>
@@ -1915,12 +1918,12 @@ namespace SQLite
 		/// <returns>
 		/// The number of rows added to the table.
 		/// </returns>
-		public int Insert (object obj, string extra)
+		public int Insert (object obj, string extra, List<KeyValuePair<string, object>> extraColumns = null)
 		{
 			if (obj == null) {
 				return 0;
 			}
-			return Insert (obj, extra, Orm.GetType (obj));
+			return Insert (obj, extra, Orm.GetType (obj), extraColumns);
 		}
 
 		/// <summary>
@@ -1937,10 +1940,13 @@ namespace SQLite
 		/// <param name="objType">
 		/// The type of object to insert.
 		/// </param>
+		/// <param name="extraColumns">
+		/// List of extra columns to be written into DB with query
+		/// </param>
 		/// <returns>
 		/// The number of rows added to the table.
 		/// </returns>
-		public int Insert (object obj, string extra, Type objType)
+		public int Insert (object obj, string extra, Type objType, List<KeyValuePair<string, object>> extraColumns = null)
 		{
 			if (obj == null || objType == null) {
 				return 0;
@@ -1957,12 +1963,21 @@ namespace SQLite
 			var replacing = string.Compare (extra, "OR REPLACE", StringComparison.OrdinalIgnoreCase) == 0;
 
 			var cols = replacing ? map.InsertOrReplaceColumns : map.InsertColumns;
-			var vals = new object[cols.Length];
-			for (var i = 0; i < vals.Length; i++) {
+			var vals = new object[cols.Length + (extraColumns?.Count ?? 0)];
+			for (var i = 0; i < cols.Length; i++) {
 				vals[i] = cols[i].GetValue (obj);
 			}
 
-			var insertCmd = GetInsertCommand (map, extra);
+			if (extraColumns != null) {
+				for (var i = cols.Length; i < cols.Length + extraColumns.Count; i++) {
+					vals[i] = extraColumns[i - cols.Length].Value;
+				}
+			}
+
+			PreparedSqlLiteInsertCommand insertCmd = null;
+
+			insertCmd = GetInsertCommand (map, extra, extraColumns);
+			
 			int count;
 
 			lock (insertCmd) {
@@ -1991,27 +2006,51 @@ namespace SQLite
 
 		readonly Dictionary<Tuple<string, string>, PreparedSqlLiteInsertCommand> _insertCommandMap = new Dictionary<Tuple<string, string>, PreparedSqlLiteInsertCommand> ();
 
-		PreparedSqlLiteInsertCommand GetInsertCommand (TableMapping map, string extra)
+		readonly Dictionary<Tuple<string, string, string>, PreparedSqlLiteInsertCommand> _insertWithExtraColumnsCommandMap = new Dictionary<Tuple<string, string, string>, PreparedSqlLiteInsertCommand> ();
+
+		PreparedSqlLiteInsertCommand GetInsertCommand (TableMapping map, string extra, List<KeyValuePair<string, object>> extraColumns = null)
 		{
 			PreparedSqlLiteInsertCommand prepCmd;
 
-			var key = Tuple.Create (map.MappedType.FullName, extra);
+			if (extraColumns == null) {
+				var key = Tuple.Create (map.MappedType.FullName, extra);
 
-			lock (_insertCommandMap) {
-				if (_insertCommandMap.TryGetValue (key, out prepCmd)) {
-					return prepCmd;
+				lock (_insertCommandMap) {
+					if (_insertCommandMap.TryGetValue (key, out prepCmd)) {
+						return prepCmd;
+					}
+				}
+
+				prepCmd = CreateInsertCommand (map, extra);
+
+				lock (_insertCommandMap) {
+					if (_insertCommandMap.TryGetValue (key, out var existing)) {
+						prepCmd.Dispose ();
+						return existing;
+					}
+
+					_insertCommandMap.Add (key, prepCmd);
 				}
 			}
+			else {
+				var key = Tuple.Create (map.MappedType.FullName, extra, String.Join (",", extraColumns.Select (kv => kv.Key)));
 
-			prepCmd = CreateInsertCommand (map, extra);
-			
-			lock (_insertCommandMap) {
-				if (_insertCommandMap.TryGetValue (key, out var existing)) {
-					prepCmd.Dispose ();
-					return existing;
+				lock (_insertWithExtraColumnsCommandMap) {
+					if (_insertWithExtraColumnsCommandMap.TryGetValue (key, out prepCmd)) {
+						return prepCmd;
+					}
 				}
 
-				_insertCommandMap.Add (key, prepCmd);
+				prepCmd = CreateInsertCommandWithExtraColumns (map, extra, extraColumns);
+
+				lock (_insertWithExtraColumnsCommandMap) {
+					if (_insertWithExtraColumnsCommandMap.TryGetValue (key, out var existing)) {
+						prepCmd.Dispose ();
+						return existing;
+					}
+
+					_insertWithExtraColumnsCommandMap.Add (key, prepCmd);
+				}
 			}
 
 			return prepCmd;
@@ -2035,6 +2074,34 @@ namespace SQLite
 								   string.Join (",", (from c in cols
 													  select "\"" + c.Name + "\"").ToArray ()),
 								   string.Join (",", (from c in cols
+													  select "?").ToArray ()), extra);
+
+			}
+
+			var insertCommand = new PreparedSqlLiteInsertCommand (this, insertSql);
+			return insertCommand;
+		}
+
+		PreparedSqlLiteInsertCommand CreateInsertCommandWithExtraColumns (TableMapping map, string extra, List<KeyValuePair<string, object>> extraColumns)
+		{
+			var cols = map.InsertColumns;
+			string insertSql;
+			if (cols.Length == 0 && map.Columns.Length == 1 && map.Columns[0].IsAutoInc) {
+				insertSql = string.Format ("insert {1} into \"{0}\" default values", map.TableName, extra);
+			}
+			else {
+				var replacing = string.Compare (extra, "OR REPLACE", StringComparison.OrdinalIgnoreCase) == 0;
+
+				if (replacing) {
+					cols = map.InsertOrReplaceColumns;
+				}
+
+				var colsWithExtras = cols.Select (c => c.Name).Concat (extraColumns.Select (kv => kv.Key)).ToArray ();
+
+				insertSql = string.Format ("insert {3} into \"{0}\"({1}) values ({2})", map.TableName,
+								   string.Join (",", (from c in colsWithExtras
+													  select "\"" + c + "\"").ToArray ()),
+								   string.Join (",", (from c in colsWithExtras
 													  select "?").ToArray ()), extra);
 
 			}
